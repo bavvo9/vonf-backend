@@ -3,23 +3,34 @@ const AppError = require('../utils/appError');
 const { uploadImage } = require('../utils/cloudinary');
 const fs = require('fs');
 
+// 1. OBTENER CONFIGURACIONES (Limpio y directo)
+const getSettings = async (req, res, next) => {
+  try {
+    const settings = await SettingsModel.getAll();
+    res.json({
+      status: 'success',
+      data: settings
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 2. ACTUALIZAR CONFIGURACIÓN (Manejando archivos binarios y strings JSON)
 const updateSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
     let { value } = req.body;
 
-    // 1. Si el usuario subió un archivo real desde su PC
+    // Si el usuario subió un archivo real desde su PC
     if (req.file) {
-      // Subimos el archivo temporal a Cloudinary y obtenemos la URL premium
       const cloudinaryUrl = await uploadImage(req.file.path);
       
-      // Borramos el archivo temporal local de inmediato para no llenar el server
       if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
-      // CASO A: Es una foto nueva para el CARRUSEL del Hero
+      // Si es el carrusel, sumamos la URL al array existente
       if (key === 'hero_carousel_images') {
-        // Traemos lo que ya está guardado en la base de datos para no pisarlo
-        const currentSetting = await SettingsModel.getByKey ? await SettingsModel.getByKey('hero_carousel_images') : null;
+        const currentSetting = await SettingsModel.getByKey(key);
         let currentImages = [];
         
         if (currentSetting && currentSetting.value) {
@@ -27,27 +38,26 @@ const updateSetting = async (req, res, next) => {
             const parsed = JSON.parse(currentSetting.value);
             if (Array.isArray(parsed)) currentImages = parsed;
           } catch (e) {
-            console.error('Error parseando imágenes existentes para el carrusel');
+            console.error('Error parseando imágenes existentes');
           }
         }
         
-        // Agregamos la nueva URL de Cloudinary al array existente
         currentImages.push(cloudinaryUrl);
         value = JSON.stringify(currentImages);
       } 
-      // CASO B: Es la imagen única del FORMULARIO de personalizados (u otra imagen directa)
+      // Si es la imagen única del formulario
       else {
         value = cloudinaryUrl;
       }
     }
 
-    // 2. Si se mandó una actualización tradicional de texto plano o el borrado de carrusel (que manda string JSON)
+    // Si viene del frontend como string JSON tradicional (borrar imagen, etc.)
     if (!req.file && key === 'hero_carousel_images' && value) {
       if (Array.isArray(value)) {
         value = JSON.stringify(value);
       } else {
         try {
-          JSON.parse(value); // Validamos que sea un JSON string válido
+          JSON.parse(value);
         } catch (e) {
           return next(new AppError('Estructura de JSON inválida para el carrusel.', 400));
         }
@@ -58,7 +68,6 @@ const updateSetting = async (req, res, next) => {
       throw new AppError('Se requiere un valor o un archivo válido para actualizar.', 400);
     }
 
-    // 3. Impactamos el cambio real en la base de datos de Neon
     const updated = await SettingsModel.update(key, value);
 
     if (!updated) {
@@ -70,14 +79,13 @@ const updateSetting = async (req, res, next) => {
       data: updated
     });
   } catch (error) {
-    // Limpieza de emergencia por si falló la subida a Cloudinary mitad de camino
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     next(error);
   }
 };
 
+// 3. EXPORTACIÓN LIMPIA COMMONJS (Sin vueltas)
 module.exports = {
-  // Asegurate de exportarlo de forma tradicional CommonJS junto a tu getSettings
-  updateSetting,
-  getSettings: require('./settings.controller').getSettings || (() => {}) 
+  getSettings,
+  updateSetting
 };
