@@ -15,7 +15,7 @@ export default function AdminSettingsPage() {
   const [uploadingCarousel, setUploadingCarousel] = useState(false)
   const [uploadingFormImg, setUploadingFormImg] = useState(false)
 
-  // 1. Cargar todas las configuraciones de la base de datos
+  // 1. Cargar todas las configuraciones estables de la DB
   useEffect(() => {
     async function loadSettings() {
       try {
@@ -32,7 +32,7 @@ export default function AdminSettingsPage() {
           }
         }
       } catch (err) {
-        console.error('Error al conectar con el backend de VONF:', err)
+        console.error('Error de conexión con site_settings:', err)
       } finally {
         setLoading(false)
       }
@@ -40,35 +40,40 @@ export default function AdminSettingsPage() {
     loadSettings()
   }, [])
 
-  // 2. Manejar cambios en el estado local de inputs tradicionales
+  // 2. Manejar mutación de campos de texto comunes localmente
   const handleInputChange = (key: string, newValue: string) => {
     setSettings(prev =>
       prev.map(item => (item.key === key ? { ...item, value: newValue } : item))
     )
   }
 
-  // 3. Guardar cambios pasando el valor como string directo
+  // 3. Persistir un cambio tradicional (pasa strings limpios para evitar el [object Object])
   const saveSetting = async (key: string, stringValue: string) => {
+    if (!token) {
+      alert('🔒 Tu sesión caducó o es inválida. Volvé a ingresar al panel.')
+      return
+    }
     setUpdatingKey(key)
     try {
-      await settingsService.update(key, stringValue, token || '')
+      await settingsService.update(key, stringValue, token)
       alert(`✨ Configuración "${key}" guardada correctamente.`)
     } catch (err) {
       console.error(err)
-      alert('Error al guardar los cambios.')
+      alert('Error de autenticación o respuesta de Render al guardar.')
     } finally {
       setUpdatingKey(null)
     }
   }
 
-  // 4. Gestión de subida directa para el Carrusel de Fondo
+  // 4. Subida binaria local directa para las fotos del Carrusel (Cloudinary)
   const handleCarouselFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file || !token) return
 
     setUploadingCarousel(true)
     try {
-      const response = await settingsService.update('temp_carousel_upload', file, token || '')
+      // Subimos usando la clave interceptora temporal para Cloudinary
+      const response = await settingsService.update('temp_carousel_upload', file, token)
       const uploadedUrl = (response as any).data?.value || (response as any).value
 
       if (uploadedUrl) {
@@ -80,37 +85,37 @@ export default function AdminSettingsPage() {
           prev.map(item => (item.key === 'hero_carousel_images' ? { ...item, value: jsonString } : item))
         )
         
-        await settingsService.update('hero_carousel_images', jsonString, token || '')
-        alert('✨ Imagen añadida al carrusel con éxito.')
+        // Impactamos la colección final stringificada en Neon
+        await settingsService.update('hero_carousel_images', jsonString, token)
+        alert('✨ Imagen incorporada con éxito al carrusel.')
       } else {
-        alert('No se pudo recuperar la URL de la imagen subida.')
+        alert('El servidor procesó el archivo pero no devolvió una URL válida.')
       }
     } catch (err) {
       console.error(err)
-      alert('Error al procesar o subir el archivo. Revisá las credenciales de Cloudinary en tu .env')
+      alert('Error en Cloudinary. Verificá que tus credenciales de Render sigan activas.')
     } finally {
       setUploadingCarousel(false)
       if (carouselFileInputRef.current) carouselFileInputRef.current.value = ''
     }
   }
 
-  // 5. Gestión de subida directa para la Imagen del Formulario
+  // 5. Subida binaria local directa para la Imagen del Formulario de Diseños
   const handleFormFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file || !token) return
 
     setUploadingFormImg(true)
     try {
-      // Como custom_form_image es una sola fila que guarda una URL directa,
-      // le pasamos el archivo binario derecho para que Multer + Cloudinary lo pisen.
-      const response = await settingsService.update('custom_form_image', file, token || '')
+      // Enviamos el File nativo de forma directa
+      const response = await settingsService.update('custom_form_image', file, token)
       const uploadedUrl = (response as any).data?.value || (response as any).value
 
       if (uploadedUrl) {
         setSettings(prev =>
           prev.map(item => (item.key === 'custom_form_image' ? { ...item, value: uploadedUrl } : item))
         )
-        alert('✨ Imagen del formulario actualizada con éxito.')
+        alert('✨ Imagen de presentación del formulario actualizada.')
       }
     } catch (err) {
       console.error(err)
@@ -134,10 +139,9 @@ export default function AdminSettingsPage() {
   }
 
   if (loading) {
-    return <div className="text-center text-gray-500 py-20 animate-pulse uppercase tracking-widest text-xs">Cargando site_settings...</div>
+    return <div className="text-center text-gray-500 py-20 animate-pulse uppercase tracking-widest text-xs">Sincronizando site_settings con Render...</div>
   }
 
-  // Excluimos las dos imágenes que ahora tienen gestor propio con botones de archivo
   const regularSettings = settings.filter(s => s.key !== 'hero_carousel_images' && s.key !== 'custom_form_image')
   const formImageSetting = settings.find(s => s.key === 'custom_form_image')
 
@@ -145,10 +149,10 @@ export default function AdminSettingsPage() {
     <div className="space-y-10">
       <div>
         <h2 className="text-2xl font-thin tracking-wider text-white uppercase">⚙️ Panel de site_settings</h2>
-        <p className="text-xs text-gray-500 mt-1">Control completo del catálogo institucional y elementos de diseño de VONF.</p>
+        <p className="text-xs text-gray-500 mt-1">Control del catálogo institucional y elementos decorativos de VONF.</p>
       </div>
 
-      {/* --- SECCIÓN 1: GESTOR DEL CARRUSEL DE IMÁGENES --- */}
+      {/* --- CARRUSEL GENERAL --- */}
       <section className="bg-gray-900 border border-gray-800 p-6 space-y-6">
         <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Imágenes de Fondo del Hero</h3>
         
@@ -193,18 +197,14 @@ export default function AdminSettingsPage() {
         </div>
       </section>
 
-      {/* --- SECCIÓN 2: GESTOR DE LA IMAGEN DEL FORMULARIO DE PERSONALIZADOS --- */}
+      {/* --- BANNER DEL FORMULARIO --- */}
       {formImageSetting && (
         <section className="bg-gray-900 border border-gray-800 p-6 space-y-6">
-          <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Imagen del Formulario</h3>
-          
+          <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Imagen del Formulario de Contacto</h3>
           <div className="space-y-4">
             <div className="flex flex-col md:flex-row gap-6 items-start md:items-center">
               {formImageSetting.value && (
-                <div 
-                  className="w-32 h-20 bg-cover bg-center bg-gray-950 border border-gray-800 shrink-0" 
-                  style={{ backgroundImage: `url(${formImageSetting.value})` }}
-                />
+                <div className="w-32 h-20 bg-cover bg-center bg-gray-950 border border-gray-800 shrink-0" style={{ backgroundImage: `url(${formImageSetting.value})` }} />
               )}
               <div className="space-y-2 flex-1 min-w-0">
                 <p className="text-xs text-gray-400 uppercase tracking-wider">{formImageSetting.label || 'Imagen actual del banner'}</p>
@@ -223,18 +223,17 @@ export default function AdminSettingsPage() {
                   disabled={uploadingFormImg}
                   className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-bold tracking-wider uppercase border border-gray-700"
                 >
-                  {uploadingFormImg ? '⚡ Cargando...' : '🔄 Cambiar Imagen de Formulario'}
+                  {uploadingFormImg ? '⚡ Cargando...' : '🔄 Cambiar Imagen desde tu PC'}
                 </button>
               </div>
             </div>
-            {formImageSetting.description && <p className="text-[11px] text-gray-500 italic">{formImageSetting.description}</p>}
           </div>
         </section>
       )}
 
-      {/* --- SECCIÓN 3: CONFIGURACIONES GENERALES --- */}
+      {/* --- CONFIGURACIONES GENERALES --- */}
       <section className="bg-gray-900 border border-gray-800 p-6 space-y-8">
-        <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Configuraciones del Sitio</h3>
+        <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Configuraciones de la Marca</h3>
         <div className="space-y-6">
           {regularSettings.map((item) => (
             <div key={item.key} className="space-y-2 border-b border-gray-800/50 pb-6 last:border-0 last:pb-0">
@@ -252,7 +251,6 @@ export default function AdminSettingsPage() {
                   {updatingKey === item.key ? '...' : 'Guardar'}
                 </button>
               </div>
-              {item.description && <p className="text-[11px] text-gray-500 italic mt-1">{item.description}</p>}
             </div>
           ))}
         </div>
