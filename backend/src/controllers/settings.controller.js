@@ -3,61 +3,66 @@ const AppError = require('../utils/appError');
 const { uploadImage } = require('../utils/cloudinary');
 const fs = require('fs');
 
-const getSettings = async (req, res, next) => {
-  try {
-    const settings = await SettingsModel.getAll();
-    res.json({
-      status: 'success',
-      data: settings
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
 const updateSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
     let { value } = req.body;
 
-    // 1. Si subieron un archivo de imagen real (para logos o formulario)
+    // 1. Si el usuario subió un archivo real desde su PC
     if (req.file) {
-      value = await uploadImage(req.file.path);
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); // Borrar temporal
+      // Subimos el archivo temporal a Cloudinary y obtenemos la URL premium
+      const cloudinaryUrl = await uploadImage(req.file.path);
+      
+      // Borramos el archivo temporal local de inmediato para no llenar el server
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
-      // SI ERA LA CLAVE TEMPORAL DEL CARRUSEL, DEVOLVEMOS LA URL DE CLOUDINARY DIRECTAMENTE
-      if (key === 'temp_carousel_upload') {
-        return res.status(200).json({
-          status: 'success',
-          data: { value: value }
-        });
+      // CASO A: Es una foto nueva para el CARRUSEL del Hero
+      if (key === 'hero_carousel_images') {
+        // Traemos lo que ya está guardado en la base de datos para no pisarlo
+        const currentSetting = await SettingsModel.getByKey ? await SettingsModel.getByKey('hero_carousel_images') : null;
+        let currentImages = [];
+        
+        if (currentSetting && currentSetting.value) {
+          try {
+            const parsed = JSON.parse(currentSetting.value);
+            if (Array.isArray(parsed)) currentImages = parsed;
+          } catch (e) {
+            console.error('Error parseando imágenes existentes para el carrusel');
+          }
+        }
+        
+        // Agregamos la nueva URL de Cloudinary al array existente
+        currentImages.push(cloudinaryUrl);
+        value = JSON.stringify(currentImages);
+      } 
+      // CASO B: Es la imagen única del FORMULARIO de personalizados (u otra imagen directa)
+      else {
+        value = cloudinaryUrl;
       }
     }
 
-    // 2. Si es el carrusel dinámico, nos aseguramos de que guarde un JSON string válido
-    if (key === 'hero_carousel_images' && value) {
-      // Si por alguna razón llega como un array nativo, lo stringificamos
+    // 2. Si se mandó una actualización tradicional de texto plano o el borrado de carrusel (que manda string JSON)
+    if (!req.file && key === 'hero_carousel_images' && value) {
       if (Array.isArray(value)) {
         value = JSON.stringify(value);
       } else {
-        // Si llega como string, validamos que sea un JSON válido para que no rompa la DB
         try {
-          JSON.parse(value);
+          JSON.parse(value); // Validamos que sea un JSON string válido
         } catch (e) {
-          return next(new AppError('El valor para el carrusel debe ser una estructura de texto JSON válida.', 400));
+          return next(new AppError('Estructura de JSON inválida para el carrusel.', 400));
         }
       }
     }
 
     if (!value && !req.file) {
-      throw new AppError('Se requiere un valor o una imagen', 400);
+      throw new AppError('Se requiere un valor o un archivo válido para actualizar.', 400);
     }
 
-    // 3. LLAMADA REAL A TU MODELO (Usamos SettingsModel en vez de db)
+    // 3. Impactamos el cambio real en la base de datos de Neon
     const updated = await SettingsModel.update(key, value);
 
     if (!updated) {
-      throw new AppError('Configuración no encontrada', 404);
+      throw new AppError('Configuración no encontrada en site_settings', 404);
     }
 
     res.json({
@@ -65,9 +70,14 @@ const updateSetting = async (req, res, next) => {
       data: updated
     });
   } catch (error) {
+    // Limpieza de emergencia por si falló la subida a Cloudinary mitad de camino
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     next(error);
   }
 };
 
-module.exports = { getSettings, updateSetting };
+module.exports = {
+  // Asegurate de exportarlo de forma tradicional CommonJS junto a tu getSettings
+  updateSetting,
+  getSettings: require('./settings.controller').getSettings || (() => {}) 
+};
