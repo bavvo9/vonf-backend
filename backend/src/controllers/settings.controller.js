@@ -19,17 +19,16 @@ const getSettings = async (req, res, next) => {
 
 // backend/src/controllers/settings.controller.js
 
-export const updateSetting = async (req, res, next) => {
+const updateSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
     let { value } = req.body;
 
-    // SI LA CLAVE ES EL CARRUSEL, ASEGURAMOS QUE SE GUARDE COMO STRING JSON VÁLIDO
+    // Si detectamos que mandamos el carrusel de imágenes, lo empaquetamos como JSON string
     if (key === 'hero_carousel_images') {
       if (Array.isArray(value)) {
         value = JSON.stringify(value);
       } else if (typeof value === 'string') {
-        // Validar si ya viene como string JSON para no romper la DB
         try {
           JSON.parse(value);
         } catch (e) {
