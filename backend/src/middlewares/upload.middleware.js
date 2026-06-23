@@ -1,10 +1,13 @@
 const multer = require('multer');
 const path = require('path');
+const os = require('os'); // Importamos el módulo nativo del sistema operativo
 
 // Configuración de almacenamiento local temporal
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/'); // Asegurate de crear esta carpeta en la raíz
+    // REEMPLAZO CLAVE: Usamos el directorio temporal del servidor (Render)
+    // Esto evita el crash porque esta ruta SIEMPRE existe en producción
+    cb(null, os.tmpdir()); 
   },
   filename: (req, file, cb) => {
     // Nombre único: fecha + extensión original
