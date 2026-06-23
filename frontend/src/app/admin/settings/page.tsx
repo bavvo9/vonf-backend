@@ -67,19 +67,27 @@ export default function AdminSettingsPage() {
 
     setUploadingCarousel(true)
     try {
-      // Enviamos el File nativo al backend bajo la clave correspondiente
+      // El backend recibe el archivo, lo sube y nos devuelve el ARRAY COMPLETO actualizado
       const response = await settingsService.update('hero_carousel_images', file, token || '')
-      const uploadedUrl = (response as any).data?.value || (response as any).value
+      const returnedJsonString = (response as any).data?.value || (response as any).value
 
-      if (uploadedUrl) {
-        const updatedImages = [...carouselImages, uploadedUrl]
-        setCarouselImages(updatedImages)
+      if (returnedJsonString) {
+        try {
+          // Transformamos el texto JSON en un array real para el Frontend
+          const newImagesArray = JSON.parse(returnedJsonString)
+          
+          // Actualizamos la pantalla con el array limpio y estructurado
+          setCarouselImages(newImagesArray)
 
-        const jsonString = JSON.stringify(updatedImages)
-        setSettings(prev =>
-          prev.map(item => (item.key === 'hero_carousel_images' ? { ...item, value: jsonString } : item))
-        )
-        alert('✨ Imagen subida e incorporada al carrusel.')
+          // Sincronizamos el estado maestro del panel
+          setSettings(prev =>
+            prev.map(item => (item.key === 'hero_carousel_images' ? { ...item, value: returnedJsonString } : item))
+          )
+          
+          alert('✨ Imagen subida e incorporada al carrusel.')
+        } catch (parseError) {
+          console.error("Error al leer el array devuelto por el servidor:", parseError)
+        }
       }
     } catch (err) {
       console.error(err)
