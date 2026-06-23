@@ -28,7 +28,7 @@ export default function AdminSettingsPage() {
             const parsed = JSON.parse(carouselData.value)
             if (Array.isArray(parsed)) setCarouselImages(parsed)
           } catch (e) {
-            console.error('Error parseando JSON inicial de imágenes:', e)
+            console.error('El JSON del carrusel estaba corrupto, empezando con lista vacía.')
           }
         }
       } catch (err) {
@@ -60,38 +60,39 @@ export default function AdminSettingsPage() {
     }
   }
 
-  // 4. Subir archivo de imagen para el Carrusel
+  // 4. Subir archivo de imagen para el Carrusel (PROCESO DE 2 PASOS RESTAURADO)
   const handleCarouselFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
     setUploadingCarousel(true)
     try {
-      // El backend recibe el archivo, lo sube y nos devuelve el ARRAY COMPLETO actualizado
-      const response = await settingsService.update('hero_carousel_images', file, token || '')
-      const returnedJsonString = (response as any).data?.value || (response as any).value
+      // PASO A: Enviamos la foto a Cloudinary usando la clave temporal
+      const uploadResponse = await settingsService.update('temp_carousel_upload', file, token || '')
+      const uploadedUrl = (uploadResponse as any).data?.value || (uploadResponse as any).value
 
-      if (returnedJsonString) {
-        try {
-          // Transformamos el texto JSON en un array real para el Frontend
-          const newImagesArray = JSON.parse(returnedJsonString)
-          
-          // Actualizamos la pantalla con el array limpio y estructurado
-          setCarouselImages(newImagesArray)
+      if (uploadedUrl) {
+        // PASO B: Metemos la nueva URL en el array local de imágenes
+        const updatedImages = [...carouselImages, uploadedUrl]
+        setCarouselImages(updatedImages)
 
-          // Sincronizamos el estado maestro del panel
-          setSettings(prev =>
-            prev.map(item => (item.key === 'hero_carousel_images' ? { ...item, value: returnedJsonString } : item))
-          )
-          
-          alert('✨ Imagen subida e incorporada al carrusel.')
-        } catch (parseError) {
-          console.error("Error al leer el array devuelto por el servidor:", parseError)
-        }
+        // PASO C: Convertimos el array a texto JSON
+        const jsonString = JSON.stringify(updatedImages)
+        
+        setSettings(prev =>
+          prev.map(item => (item.key === 'hero_carousel_images' ? { ...item, value: jsonString } : item))
+        )
+
+        // PASO D: Guardamos el string estructurado real en la base de datos
+        await settingsService.update('hero_carousel_images', jsonString, token || '')
+        
+        alert('✨ Imagen subida e incorporada al carrusel.')
+      } else {
+        alert('Error: No se recibió una URL válida desde Cloudinary.')
       }
     } catch (err) {
       console.error(err)
-      alert('Error al subir la imagen a Cloudinary. Comprobá tu sesión.')
+      alert('Error al subir la imagen al carrusel. Revisá tu conexión o consola.')
     } finally {
       setUploadingCarousel(false)
       if (carouselFileInputRef.current) carouselFileInputRef.current.value = ''
