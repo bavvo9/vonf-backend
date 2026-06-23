@@ -1,24 +1,27 @@
 'use client'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { settingsService, SiteSetting } from '@/services/settings.service'
-import { useAuth } from '@/context/AuthContext' // Importamos tu contexto de autenticación para sacar el token
+import { useAuth } from '@/context/AuthContext'
 
 export default function AdminSettingsPage() {
-  const { token } = useAuth() // Obtenemos el token real del administrador logueado
+  const { token } = useAuth()
+  const carouselFileInputRef = useRef<HTMLInputElement>(null)
+  const formFileInputRef = useRef<HTMLInputElement>(null)
+  
   const [settings, setSettings] = useState<SiteSetting[]>([])
   const [carouselImages, setCarouselImages] = useState<string[]>([])
-  const [newImageUrl, setNewImageUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [updatingKey, setUpdatingKey] = useState<string | null>(null)
+  const [uploadingCarousel, setUploadingCarousel] = useState(false)
+  const [uploadingFormImg, setUploadingFormImg] = useState(false)
 
-  // 1. Cargar las configuraciones desde el Backend
+  // 1. Cargar todas las configuraciones de la base de datos
   useEffect(() => {
     async function loadSettings() {
       try {
         const data = await settingsService.getAll()
         setSettings(data)
 
-        // Buscamos la clave del carrusel mapeando con el tipo correcto
         const carouselData = data.find((s: SiteSetting) => s.key === 'hero_carousel_images')
         if (carouselData?.value) {
           try {
@@ -29,7 +32,7 @@ export default function AdminSettingsPage() {
           }
         }
       } catch (err) {
-        console.error('Error cargando configuraciones:', err)
+        console.error('Error al conectar con el backend de VONF:', err)
       } finally {
         setLoading(false)
       }
@@ -37,160 +40,152 @@ export default function AdminSettingsPage() {
     loadSettings()
   }, [])
 
-  // 2. Manejar cambios en inputs de texto tradicionales
-  const handleTextChange = (key: string, newValue: string) => {
+  // 2. Manejar cambios en el estado local de inputs tradicionales
+  const handleInputChange = (key: string, newValue: string) => {
     setSettings(prev =>
       prev.map(item => (item.key === key ? { ...item, value: newValue } : item))
     )
   }
 
-  // 3. Guardar una configuración individual en la DB usando la firma real (key, data, token)
-  const saveSetting = async (key: string, finalValue: any) => {
+  // 3. Guardar cambios pasando el valor como string directo
+  const saveSetting = async (key: string, stringValue: string) => {
     setUpdatingKey(key)
     try {
-      // Si finalValue es un array (como el carrusel), lo pasamos a string JSON antes de mandarlo
-      const payload = Array.isArray(finalValue) ? JSON.stringify(finalValue) : finalValue
-      
-      // Llamada exacta a tu servicio: key, data (string), token
-      await settingsService.update(key, payload, token || '')
-      
-      alert(`✨ Configuración "${key}" actualizada con éxito.`)
+      await settingsService.update(key, stringValue, token || '')
+      alert(`✨ Configuración "${key}" guardada correctamente.`)
     } catch (err) {
-      alert('Error al guardar los cambios en el servidor.')
+      console.error(err)
+      alert('Error al guardar los cambios.')
     } finally {
       setUpdatingKey(null)
     }
   }
 
-  // 4. Funciones específicas para el gestor del Carrusel (Array N)
-  const addCarouselImage = () => {
-    if (!newImageUrl.trim()) return
-    if (!newImageUrl.startsWith('http')) {
-      alert('Por favor, ingresá una URL válida (que empiece con http o https)')
-      return
+  // 4. Gestión de subida directa para el Carrusel de Fondo
+  const handleCarouselFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadingCarousel(true)
+    try {
+      const response = await settingsService.update('temp_carousel_upload', file, token || '')
+      const uploadedUrl = (response as any).data?.value || (response as any).value
+
+      if (uploadedUrl) {
+        const updatedImages = [...carouselImages, uploadedUrl]
+        setCarouselImages(updatedImages)
+        
+        const jsonString = JSON.stringify(updatedImages)
+        setSettings(prev =>
+          prev.map(item => (item.key === 'hero_carousel_images' ? { ...item, value: jsonString } : item))
+        )
+        
+        await settingsService.update('hero_carousel_images', jsonString, token || '')
+        alert('✨ Imagen añadida al carrusel con éxito.')
+      } else {
+        alert('No se pudo recuperar la URL de la imagen subida.')
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Error al procesar o subir el archivo. Revisá las credenciales de Cloudinary en tu .env')
+    } finally {
+      setUploadingCarousel(false)
+      if (carouselFileInputRef.current) carouselFileInputRef.current.value = ''
     }
-    const updatedImages = [...carouselImages, newImageUrl.trim()]
-    setCarouselImages(updatedImages)
-    setNewImageUrl('')
-    saveSetting('hero_carousel_images', updatedImages)
   }
 
-  const removeCarouselImage = (indexToRemove: number) => {
+  // 5. Gestión de subida directa para la Imagen del Formulario
+  const handleFormFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadingFormImg(true)
+    try {
+      // Como custom_form_image es una sola fila que guarda una URL directa,
+      // le pasamos el archivo binario derecho para que Multer + Cloudinary lo pisen.
+      const response = await settingsService.update('custom_form_image', file, token || '')
+      const uploadedUrl = (response as any).data?.value || (response as any).value
+
+      if (uploadedUrl) {
+        setSettings(prev =>
+          prev.map(item => (item.key === 'custom_form_image' ? { ...item, value: uploadedUrl } : item))
+        )
+        alert('✨ Imagen del formulario actualizada con éxito.')
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Error al subir la imagen del formulario.')
+    } finally {
+      setUploadingFormImg(false)
+      if (formFileInputRef.current) formFileInputRef.current.value = ''
+    }
+  }
+
+  const removeCarouselImage = async (indexToRemove: number) => {
     const updatedImages = carouselImages.filter((_, index) => index !== indexToRemove)
     setCarouselImages(updatedImages)
-    saveSetting('hero_carousel_images', updatedImages)
+    
+    const jsonString = JSON.stringify(updatedImages)
+    setSettings(prev =>
+      prev.map(item => (item.key === 'hero_carousel_images' ? { ...item, value: jsonString } : item))
+    )
+    
+    await saveSetting('hero_carousel_images', jsonString)
   }
 
   if (loading) {
     return <div className="text-center text-gray-500 py-20 animate-pulse uppercase tracking-widest text-xs">Cargando site_settings...</div>
   }
 
-  const heroTitle = settings.find(s => s.key === 'hero_title')
-  const heroSubtitle = settings.find(s => s.key === 'hero_subtitle')
-  const whatsappNum = settings.find(s => s.key === 'whatsapp_number')
-  const whatsappMsg = settings.find(s => s.key === 'whatsapp_message')
+  // Excluimos las dos imágenes que ahora tienen gestor propio con botones de archivo
+  const regularSettings = settings.filter(s => s.key !== 'hero_carousel_images' && s.key !== 'custom_form_image')
+  const formImageSetting = settings.find(s => s.key === 'custom_form_image')
 
   return (
     <div className="space-y-10">
       <div>
-        <h2 className="text-2xl font-thin tracking-wider text-white uppercase">⚙️ Configuraciones Globales</h2>
-        <p className="text-xs text-gray-500 mt-1">Controla los textos, imágenes de fondo y enlaces de contacto de tu catálogo institucional.</p>
+        <h2 className="text-2xl font-thin tracking-wider text-white uppercase">⚙️ Panel de site_settings</h2>
+        <p className="text-xs text-gray-500 mt-1">Control completo del catálogo institucional y elementos de diseño de VONF.</p>
       </div>
 
-      {/* --- CONTENIDO DEL HERO --- */}
+      {/* --- SECCIÓN 1: GESTOR DEL CARRUSEL DE IMÁGENES --- */}
       <section className="bg-gray-900 border border-gray-800 p-6 space-y-6">
-        <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Contenido Principal (Hero)</h3>
-        
-        {heroTitle && (
-          <div className="space-y-2">
-            <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">{heroTitle.label || 'Título del Hero'}</label>
-            <div className="flex gap-4">
-              <input 
-                type="text" 
-                value={heroTitle.value} 
-                onChange={(e) => handleTextChange('hero_title', e.target.value)}
-                className="flex-1 bg-gray-950 border border-gray-800 px-4 py-3 text-sm text-white focus:outline-hidden focus:border-purple-500 transition-colors"
-              />
-              <button 
-                onClick={() => saveSetting('hero_title', heroTitle.value)}
-                disabled={updatingKey === 'hero_title'}
-                className="px-6 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold tracking-widest uppercase transition-colors"
-              >
-                {updatingKey === 'hero_title' ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
-            <p className="text-[11px] text-gray-500">{heroTitle.description}</p>
-          </div>
-        )}
-
-        {heroSubtitle && (
-          <div className="space-y-2">
-            <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">{heroSubtitle.label || 'Subtítulo del Hero'}</label>
-            <div className="flex gap-4">
-              <textarea 
-                rows={2}
-                value={heroSubtitle.value} 
-                onChange={(e) => handleTextChange('hero_subtitle', e.target.value)}
-                className="flex-1 bg-gray-950 border border-gray-800 p-4 text-sm text-white focus:outline-hidden focus:border-purple-500 transition-colors resize-none"
-              />
-              <button 
-                onClick={() => saveSetting('hero_subtitle', heroSubtitle.value)}
-                disabled={updatingKey === 'hero_subtitle'}
-                className="px-6 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold tracking-widest uppercase transition-colors h-12 self-end"
-              >
-                {updatingKey === 'hero_subtitle' ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* --- GESTOR DINÁMICO DEL CARRUSEL --- */}
-      <section className="bg-gray-900 border border-gray-800 p-6 space-y-6">
-        <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Imágenes del Carrusel de Fondo</h3>
+        <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Imágenes de Fondo del Hero</h3>
         
         <div className="space-y-2">
-          <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">Agregar imagen al carrusel</label>
+          <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">Subir nueva imagen desde tu PC</label>
           <div className="flex gap-4">
             <input 
-              type="text" 
-              placeholder="Pegá la URL de la imagen..."
-              value={newImageUrl} 
-              onChange={(e) => setNewImageUrl(e.target.value)}
-              className="flex-1 bg-gray-950 border border-gray-800 px-4 py-3 text-sm text-white focus:outline-hidden focus:border-purple-500 transition-colors"
+              type="file" 
+              accept="image/*"
+              ref={carouselFileInputRef}
+              onChange={handleCarouselFileChange}
+              className="hidden"
             />
             <button 
-              onClick={addCarouselImage}
-              className="px-6 bg-gray-800 hover:bg-gray-700 text-white text-xs font-bold tracking-widest uppercase transition-colors border border-gray-700"
+              type="button"
+              onClick={() => carouselFileInputRef.current?.click()}
+              disabled={uploadingCarousel}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-950 text-white text-xs font-bold tracking-widest uppercase transition-colors border border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.2)] font-sans"
             >
-              + Añadir
+              {uploadingCarousel ? '⚡ Subiendo a Cloudinary...' : '📂 Seleccionar y Subir Imagen'}
             </button>
           </div>
         </div>
 
         <div className="space-y-3">
-          <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">Imágenes activas ({carouselImages.length})</label>
-          
+          <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">Imágenes activas en rotación ({carouselImages.length})</label>
           {carouselImages.length === 0 ? (
-            <p className="text-xs text-gray-600 italic">No hay imágenes en el carrusel.</p>
+            <p className="text-xs text-gray-600 italic">No hay imágenes en el carrusel de fondo.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {carouselImages.map((url, idx) => (
-                <div key={idx} className="flex items-center gap-4 bg-gray-950 p-3 border border-gray-800 group relative">
-                  <div 
-                    className="w-16 h-10 bg-cover bg-center bg-gray-900 border border-gray-800 shrink-0"
-                    style={{ backgroundImage: `url(${url})` }}
-                  />
+                <div key={idx} className="flex items-center gap-4 bg-gray-950 p-3 border border-gray-800">
+                  <div className="w-16 h-10 bg-cover bg-center bg-gray-900 border border-gray-800 shrink-0" style={{ backgroundImage: `url(${url})` }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-gray-400 truncate tracking-tight">{url}</p>
-                    <p className="text-[10px] text-purple-500 uppercase mt-0.5 font-mono">Index: {idx}</p>
                   </div>
-                  <button 
-                    onClick={() => removeCarouselImage(idx)}
-                    className="text-gray-500 hover:text-red-400 p-2 transition-colors text-sm font-bold"
-                  >
-                    ✕
-                  </button>
+                  <button type="button" onClick={() => removeCarouselImage(idx)} className="text-gray-500 hover:text-red-400 p-2 transition-colors text-sm font-bold">✕</button>
                 </div>
               ))}
             </div>
@@ -198,50 +193,68 @@ export default function AdminSettingsPage() {
         </div>
       </section>
 
-      {/* --- DATOS DE WHATSAPP --- */}
-      <section className="bg-gray-900 border border-gray-800 p-6 space-y-6">
-        <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Canal de Contacto (WhatsApp)</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {whatsappNum && (
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">{whatsappNum.label || 'Número de WhatsApp'}</label>
-              <div className="flex gap-3">
+      {/* --- SECCIÓN 2: GESTOR DE LA IMAGEN DEL FORMULARIO DE PERSONALIZADOS --- */}
+      {formImageSetting && (
+        <section className="bg-gray-900 border border-gray-800 p-6 space-y-6">
+          <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Imagen del Formulario</h3>
+          
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row gap-6 items-start md:items-center">
+              {formImageSetting.value && (
+                <div 
+                  className="w-32 h-20 bg-cover bg-center bg-gray-950 border border-gray-800 shrink-0" 
+                  style={{ backgroundImage: `url(${formImageSetting.value})` }}
+                />
+              )}
+              <div className="space-y-2 flex-1 min-w-0">
+                <p className="text-xs text-gray-400 uppercase tracking-wider">{formImageSetting.label || 'Imagen actual del banner'}</p>
+                <p className="text-[11px] text-gray-600 truncate font-mono">{formImageSetting.value}</p>
+                
                 <input 
-                  type="text" 
-                  value={whatsappNum.value} 
-                  onChange={(e) => handleTextChange('whatsapp_number', e.target.value)}
-                  className="flex-1 bg-gray-950 border border-gray-800 px-4 py-2.5 text-sm text-white focus:outline-hidden focus:border-purple-500 transition-colors font-mono"
+                  type="file" 
+                  accept="image/*"
+                  ref={formFileInputRef}
+                  onChange={handleFormFileChange}
+                  className="hidden"
                 />
                 <button 
-                  onClick={() => saveSetting('whatsapp_number', whatsappNum.value)}
-                  className="px-4 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold uppercase tracking-wider transition-colors"
+                  type="button"
+                  onClick={() => formFileInputRef.current?.click()}
+                  disabled={uploadingFormImg}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-bold tracking-wider uppercase border border-gray-700"
                 >
-                  Ok
+                  {uploadingFormImg ? '⚡ Cargando...' : '🔄 Cambiar Imagen de Formulario'}
                 </button>
               </div>
             </div>
-          )}
+            {formImageSetting.description && <p className="text-[11px] text-gray-500 italic">{formImageSetting.description}</p>}
+          </div>
+        </section>
+      )}
 
-          {whatsappMsg && (
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">{whatsappMsg.label || 'Mensaje Predeterminado'}</label>
-              <div className="flex gap-3">
-                <input 
-                  type="text" 
-                  value={whatsappMsg.value} 
-                  onChange={(e) => handleTextChange('whatsapp_message', e.target.value)}
-                  className="flex-1 bg-gray-950 border border-gray-800 px-4 py-2.5 text-sm text-white focus:outline-hidden focus:border-purple-500 transition-colors"
-                />
-                <button 
-                  onClick={() => saveSetting('whatsapp_message', whatsappMsg.value)}
-                  className="px-4 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold uppercase tracking-wider transition-colors"
-                >
-                  Ok
+      {/* --- SECCIÓN 3: CONFIGURACIONES GENERALES --- */}
+      <section className="bg-gray-900 border border-gray-800 p-6 space-y-8">
+        <h3 className="text-sm font-semibold tracking-widest text-purple-400 uppercase border-b border-gray-800 pb-2">Configuraciones del Sitio</h3>
+        <div className="space-y-6">
+          {regularSettings.map((item) => (
+            <div key={item.key} className="space-y-2 border-b border-gray-800/50 pb-6 last:border-0 last:pb-0">
+              <div className="flex justify-between items-baseline">
+                <label className="block text-xs font-medium text-gray-300 uppercase tracking-wider">{item.label || item.key.replace(/_/g, ' ')}</label>
+                <span className="text-[10px] font-mono text-gray-600 uppercase">{item.key}</span>
+              </div>
+              <div className="flex gap-4">
+                {item.value.length > 100 ? (
+                  <textarea rows={2} value={item.value} onChange={(e) => handleInputChange(item.key, e.target.value)} className="flex-1 bg-gray-950 border border-gray-800 p-3 text-sm text-white focus:outline-hidden focus:border-purple-500 transition-colors resize-none" />
+                ) : (
+                  <input type="text" value={item.value} onChange={(e) => handleInputChange(item.key, e.target.value)} className="flex-1 bg-gray-950 border border-gray-800 px-4 py-3 text-sm text-white focus:outline-hidden focus:border-purple-500 transition-colors" />
+                )}
+                <button type="button" onClick={() => saveSetting(item.key, item.value)} disabled={updatingKey === item.key} className="px-6 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold tracking-widest uppercase transition-colors self-end h-11">
+                  {updatingKey === item.key ? '...' : 'Guardar'}
                 </button>
               </div>
+              {item.description && <p className="text-[11px] text-gray-500 italic mt-1">{item.description}</p>}
             </div>
-          )}
+          ))}
         </div>
       </section>
     </div>

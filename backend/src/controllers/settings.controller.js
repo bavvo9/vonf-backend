@@ -6,8 +6,6 @@ const fs = require('fs');
 const getSettings = async (req, res, next) => {
   try {
     const settings = await SettingsModel.getAll();
-    // Transformamos el array en un objeto { clave: valor } para facilitar uso en frontend
-    // O devolvemos el array completo para el Admin Panel
     res.json({
       status: 'success',
       data: settings
@@ -17,52 +15,57 @@ const getSettings = async (req, res, next) => {
   }
 };
 
-// backend/src/controllers/settings.controller.js
-
 const updateSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
     let { value } = req.body;
 
-    // Si detectamos que mandamos el carrusel de imágenes, lo empaquetamos como JSON string
-    if (key === 'hero_carousel_images') {
+    // 1. Si subieron un archivo de imagen real (para logos o formulario)
+    if (req.file) {
+      value = await uploadImage(req.file.path);
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); // Borrar temporal
+
+      // SI ERA LA CLAVE TEMPORAL DEL CARRUSEL, DEVOLVEMOS LA URL DE CLOUDINARY DIRECTAMENTE
+      if (key === 'temp_carousel_upload') {
+        return res.status(200).json({
+          status: 'success',
+          data: { value: value }
+        });
+      }
+    }
+
+    // 2. Si es el carrusel dinámico, nos aseguramos de que guarde un JSON string válido
+    if (key === 'hero_carousel_images' && value) {
+      // Si por alguna razón llega como un array nativo, lo stringificamos
       if (Array.isArray(value)) {
         value = JSON.stringify(value);
-      } else if (typeof value === 'string') {
+      } else {
+        // Si llega como string, validamos que sea un JSON válido para que no rompa la DB
         try {
           JSON.parse(value);
         } catch (e) {
-          return res.status(400).json({ 
-            status: 'error', 
-            message: 'El valor para las imágenes del carrusel debe ser un array válido.' 
-          });
+          return next(new AppError('El valor para el carrusel debe ser una estructura de texto JSON válida.', 400));
         }
       }
     }
 
-    // Tu consulta SQL actual apuntando a la tabla correcta que descubrimos
-    const query = `
-      UPDATE site_settings 
-      SET value = $1, updated_at = NOW() 
-      WHERE key = $2 
-      RETURNING *
-    `;
-    
-    const result = await db.query(query, [value, key]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'No se encontró la configuración especificada.'
-      });
+    if (!value && !req.file) {
+      throw new AppError('Se requiere un valor o una imagen', 400);
     }
 
-    res.status(200).json({
-      status: 'success',
-      data: result.rows[0]
-    });
+    // 3. LLAMADA REAL A TU MODELO (Usamos SettingsModel en vez de db)
+    const updated = await SettingsModel.update(key, value);
 
+    if (!updated) {
+      throw new AppError('Configuración no encontrada', 404);
+    }
+
+    res.json({
+      status: 'success',
+      data: updated
+    });
   } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     next(error);
   }
 };
