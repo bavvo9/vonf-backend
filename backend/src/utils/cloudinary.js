@@ -1,5 +1,6 @@
 require('dotenv').config();
 const cloudinary = require('cloudinary').v2;
+const { Readable } = require('stream'); // <-- Importación nativa súper importante
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -7,16 +8,19 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// OPTIMIZACIÓN: Ahora recibimos un "buffer" (RAM) en vez de un "filePath" (Disco)
 const uploadImage = (fileBuffer) => {
   return new Promise((resolve, reject) => {
-    // Usamos el método de stream directo
+    // FRENO DE EMERGENCIA: Si el archivo viene vacío o pasaste req.file.path por error
+    if (!fileBuffer) {
+      return reject(new Error("🚨 ARCHIVO VACÍO: Revisá tu controlador y asegurate de estar enviando 'req.file.buffer' en lugar de 'req.file.path'"));
+    }
+
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: 'vonf-products',
-        format: 'webp',      // Convierte forzadamente a WebP (ultra liviano para la web)
-        quality: 'auto',     // Cloudinary decide la mejor compresión sin perder calidad visual
-        width: 1920,         // Limita el ancho para que no se guarden fotos 4K gigantes
+        format: 'webp',
+        quality: 'auto',
+        width: 1920,
         crop: 'limit'
       },
       (error, result) => {
@@ -28,8 +32,8 @@ const uploadImage = (fileBuffer) => {
       }
     );
 
-    // Inyectamos el archivo de la memoria directo a la tubería de subida
-    uploadStream.end(fileBuffer);
+    // INYECCIÓN PERFECTA: Convertimos la RAM (Buffer) en un flujo de lectura y lo conectamos a Cloudinary
+    Readable.from(fileBuffer).pipe(uploadStream);
   });
 };
 

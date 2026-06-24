@@ -25,7 +25,7 @@ const createForm = async (req, res, next) => {
 
         // Si hay archivo, subimos a Cloudinary
         if (req.file) {
-            image_url = await uploadImage(req.file.path);
+            image_url = await uploadImage(req.file.buffer);
             // 2. Borramos el archivo local temporal
            // fs.unlinkSync(req.file.path);
         }

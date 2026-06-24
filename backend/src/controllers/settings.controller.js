@@ -20,7 +20,7 @@ const updateSetting = async (req, res, next) => {
     // 1. Manejo de archivos binarios (Multer)
     if (req.file) {
       // Subimos el archivo a Cloudinary
-      const cloudinaryUrl = await uploadImage(req.file.path);
+      const cloudinaryUrl = await uploadImage(req.file.buffer);
       
       // Borramos el archivo temporal del servidor (Render) para liberar espacio
       //if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); 

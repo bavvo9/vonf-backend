@@ -27,7 +27,7 @@ const createProduct = async (req, res, next) => {
     
     // 1. Si hay archivo, subimos a Cloudinary
     if (req.file) {
-      imageUrl = await uploadImage(req.file.path);
+      imageUrl = await uploadImage(req.file.buffer);
       // 2. Borramos el archivo local temporal
       //fs.unlinkSync(req.file.path);
     }
