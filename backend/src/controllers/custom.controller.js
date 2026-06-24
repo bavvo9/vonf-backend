@@ -27,7 +27,7 @@ const createForm = async (req, res, next) => {
         if (req.file) {
             image_url = await uploadImage(req.file.path);
             // 2. Borramos el archivo local temporal
-            fs.unlinkSync(req.file.path);
+           // fs.unlinkSync(req.file.path);
         }
 
         const form = await CustomModel.createForm(user_id, full_name, contact_info, description, image_url);
@@ -38,9 +38,9 @@ const createForm = async (req, res, next) => {
     catch(error){
         // Si hubo error y se subió una imagen pero falló algo más,
         // borramos el archivo temporal si quedó ahí.
-        if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-        }
+       // if (req.file && fs.existsSync(req.file.path)) {
+         //   fs.unlinkSync(req.file.path);
+        //}
         next(error); 
     }
 }

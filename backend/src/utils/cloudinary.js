@@ -1,32 +1,36 @@
-require('dotenv').config(); // 1. FORZAMOS A QUE LEA EL .env SÍ O SÍ
+require('dotenv').config();
 const cloudinary = require('cloudinary').v2;
 
-// 2. Imprimimos en consola si realmente está encontrando tus credenciales
-console.log("☁️ Test de Credenciales de Cloudinary:", {
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME ? "Cargado OK" : "❌ FALTA",
-  api_key: process.env.CLOUDINARY_API_KEY ? "Cargado OK" : "❌ FALTA",
-  api_secret: process.env.CLOUDINARY_API_SECRET ? "Cargado OK" : "❌ FALTA"
-});
-
-// Configuración global
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const uploadImage = async (filePath) => {
-  try {
-    // Subimos la imagen a una carpeta llamada 'vonf-products'
-    const result = await cloudinary.uploader.upload(filePath, {
-      folder: 'vonf-products'
-    });
-    return result.secure_url; // Devolvemos el link HTTPS
-  } catch (error) {
-    // 3. MOSTRAMOS EL ERROR REAL EN LA CONSOLA PARA VER QUÉ FALLA
-    console.error('\n🔥 ERROR CRÍTICO RECHAZADO POR CLOUDINARY:', error, '\n');
-    throw new Error(`Error Cloudinary: ${error.message || 'Desconocido'}`);
-  }
+// OPTIMIZACIÓN: Ahora recibimos un "buffer" (RAM) en vez de un "filePath" (Disco)
+const uploadImage = (fileBuffer) => {
+  return new Promise((resolve, reject) => {
+    // Usamos el método de stream directo
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'vonf-products',
+        format: 'webp',      // Convierte forzadamente a WebP (ultra liviano para la web)
+        quality: 'auto',     // Cloudinary decide la mejor compresión sin perder calidad visual
+        width: 1920,         // Limita el ancho para que no se guarden fotos 4K gigantes
+        crop: 'limit'
+      },
+      (error, result) => {
+        if (error) {
+          console.error('\n🔥 ERROR CRÍTICO CLOUDINARY:', error, '\n');
+          return reject(new Error(`Error Cloudinary: ${error.message || 'Desconocido'}`));
+        }
+        resolve(result.secure_url);
+      }
+    );
+
+    // Inyectamos el archivo de la memoria directo a la tubería de subida
+    uploadStream.end(fileBuffer);
+  });
 };
 
 module.exports = { uploadImage };

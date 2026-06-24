@@ -23,7 +23,7 @@ const updateSetting = async (req, res, next) => {
       const cloudinaryUrl = await uploadImage(req.file.path);
       
       // Borramos el archivo temporal del servidor (Render) para liberar espacio
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      //if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); 
 
       // FRENO CRÍTICO: Si es la clave temporal del carrusel, NO vamos a la base de datos.
       // Solo devolvemos la URL de Cloudinary para que el Frontend arme el JSON.
@@ -64,7 +64,7 @@ const updateSetting = async (req, res, next) => {
 
     res.json({ status: 'success', data: updated });
   } catch (error) {
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    //if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     next(error);
   }
 };

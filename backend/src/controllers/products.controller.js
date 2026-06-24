@@ -29,7 +29,7 @@ const createProduct = async (req, res, next) => {
     if (req.file) {
       imageUrl = await uploadImage(req.file.path);
       // 2. Borramos el archivo local temporal
-      fs.unlinkSync(req.file.path);
+      //fs.unlinkSync(req.file.path);
     }
 
     // Nota: Cuando usas 'form-data' en Postman, los números vienen como strings.
@@ -47,9 +47,9 @@ const createProduct = async (req, res, next) => {
     res.status(201).json(product);
   } catch (error) {
     // Si falla algo y quedó un archivo suelto, intentamos borrarlo
-    if (req.file && fs.existsSync(req.file.path)) {
-       fs.unlinkSync(req.file.path);
-    }
+   // if (req.file && fs.existsSync(req.file.path)) {
+     //  fs.unlinkSync(req.file.path);
+    //}
     next(error);
   }
 };
@@ -60,7 +60,7 @@ const updateProduct = async (req, res, next) => {
 
     if (req.file) {
       imageUrl = await uploadImage(req.file.path);
-      fs.unlinkSync(req.file.path);
+      //fs.unlinkSync(req.file.path);
     }
 
     const productData = {
@@ -77,7 +77,7 @@ const updateProduct = async (req, res, next) => {
     const product = await ProductService.updateProduct(req.params.id, productData);
     res.json(product);
   } catch (error) {
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    //if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     next(error);
   }
 };
